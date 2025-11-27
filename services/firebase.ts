@@ -1,4 +1,3 @@
-
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
@@ -15,47 +14,46 @@ const firebaseConfig = {
 };
 // ---------------------------
 
-// Inicialização segura
+// Inicialização
 let app;
 let auth: any;
 let db: any;
 let googleProvider: any;
-// Reachability flag for Firestore (in case browser extensions block requests)
-// tri-state: null = probe pending, true = reachable, false = unreachable
-let isFirestoreReachable: boolean | null = null;
 
-// Verifica se o usuário substituiu a chave padrão (ou se a chave parece válida)
+// Definimos como true por padrão para não bloquear o app baseado em testes de API REST
+// O SDK do Firebase gerencia a conectividade interna e offline automaticamente.
+let isFirestoreReachable: boolean | null = true;
+
+// Verifica se a chave parece válida
 const isFirebaseSetup = firebaseConfig.apiKey && firebaseConfig.apiKey.length > 20;
 
 if (isFirebaseSetup) {
     try {
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
+        
+        // Inicializa o Firestore diretamente sem o "probe" de fetch manual
+        // Isso evita o erro 403/bloqueio CORS na Vercel
+        db = getFirestore(app);
+        
         googleProvider = new GoogleAuthProvider();
-        console.log("Firebase connected (auth initialized). Performing Firestore reachability probe before instantiating Firestore.");
-        // Probe Firestore before creating the SDK DB instance to avoid SDK opening channels that can be blocked by extensions.
-        (async () => {
-            try {
-                const proj = firebaseConfig.projectId;
-                const key = firebaseConfig.apiKey;
-                const url = `https://firestore.googleapis.com/v1/projects/${proj}/databases/(default)/documents?pageSize=1&key=${key}`;
-                const res = await fetch(url, { method: 'GET' });
-                console.log('[firebase] Firestore reachability probe status:', res.status);
-                isFirestoreReachable = true;
-                try { db = getFirestore(app); } catch(e) { console.warn('[firebase] could not instantiate firestore after probe', e); }
-                // notify listeners
-                try { window.dispatchEvent(new CustomEvent('firestore:reachability', { detail: { reachable: true } })); } catch(e) {}
-            } catch (err) {
-                console.warn('[firebase] Firestore appears to be blocked or unreachable in this environment.', err);
-                isFirestoreReachable = false;
-                try { window.dispatchEvent(new CustomEvent('firestore:reachability', { detail: { reachable: false, error: String(err) } })); } catch(e) {}
-            }
-        })();
+        
+        console.log("Firebase initialized successfully.");
+
+        // Dispara o evento de sucesso para compatibilidade com o useAppStore
+        if (typeof window !== 'undefined') {
+            setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('firestore:reachability', { detail: { reachable: true } }));
+            }, 50);
+        }
+
     } catch (error) {
         console.error("Erro CRÍTICO ao conectar no Firebase.", error);
+        isFirestoreReachable = false;
     }
 } else {
     console.warn("⚠️ O Firebase ainda não foi configurado corretamente.");
+    isFirestoreReachable = false;
 }
 
 export { auth, db, googleProvider, signInWithPopup, signOut, doc, setDoc, getDoc, isFirebaseSetup, isFirestoreReachable };
