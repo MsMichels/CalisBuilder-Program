@@ -19,6 +19,8 @@ interface LayoutProps {
 
 export const Layout = ({ currentView, onViewChange, children }: LayoutProps) => {
     const { user, login, logout, isConfigured, authError } = useAppStore();
+    const { firestoreReachable } = useAppStore();
+    const [hideReachBanner, setHideReachBanner] = React.useState(false);
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-emerald-500/30 pb-24 lg:pb-0">
@@ -119,6 +121,22 @@ export const Layout = ({ currentView, onViewChange, children }: LayoutProps) => 
                         <button onClick={() => window.location.reload()} className="bg-white text-red-500 px-3 py-1 rounded text-xs whitespace-nowrap hover:bg-red-50">
                             Tentar Novamente
                         </button>
+                    </div>
+                )}
+                {/* Firestore reachability banner */}
+                {!firestoreReachable && !hideReachBanner && (
+                    <div className="bg-yellow-500/95 text-slate-900 p-3 text-center text-sm font-semibold sticky top-0 z-50 backdrop-blur-md flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <AlertTriangle size={18} />
+                            <div>
+                                <div>Sincronização desativada — conexões com Firebase bloqueadas pelo navegador ou extensão.</div>
+                                <div className="text-xs text-slate-800">Desative extensões de bloqueio (AdBlock/Privacy) ou permita <span className="font-mono">firestore.googleapis.com</span>.</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => window.location.reload()} className="bg-white/90 text-yellow-600 px-3 py-1 rounded text-xs">Recarregar</button>
+                            <button onClick={() => setHideReachBanner(true)} className="text-slate-800/70 text-xs underline">Fechar</button>
+                        </div>
                     </div>
                 )}
                 <div className="max-w-5xl mx-auto p-4 lg:p-10 animate-in fade-in duration-300">

@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { UserProfile, WorkoutRoutine, WorkoutSession, ScheduleEntry, Difficulty, Goal, Exercise } from '../types';
 import { generateInitialSchedule, getTodayString, recalculateScheduleLogic, normalizeDate } from '../utils/scheduler';
-import { auth, db, googleProvider, signInWithPopup, signOut, doc, getDoc, setDoc, isFirebaseSetup } from '../services/firebase';
+import { auth, db, googleProvider, signInWithPopup, signOut, doc, getDoc, setDoc, isFirebaseSetup, isFirestoreReachable } from '../services/firebase';
 
 // Fallback ID generator: prefer crypto.randomUUID(), otherwise fallback to timestamp+random
 const generateId = () => {
@@ -31,6 +31,7 @@ export const useAppStore = () => {
   const [history, setHistory] = useState<WorkoutSession[]>([]);
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
+    const [firestoreReachable, setFirestoreReachable] = useState<boolean>(true);
     const [partialSyncStatus, setPartialSyncStatus] = useState<Record<string, 'idle'|'uploading'|'synced'|'failed'>>({});
     const [lastPersistError, setLastPersistError] = useState<string | null>(null);
     const [lastPersistOkAt, setLastPersistOkAt] = useState<string | null>(null);
@@ -41,8 +42,8 @@ export const useAppStore = () => {
       const payload = { profile: newProfile, routines: newRoutines, history: newHistory, schedule: newSchedule, lastUpdated: new Date().toISOString() };
       try { localStorage.setItem('caliapp_data_v2', JSON.stringify(payload)); } catch (e) { /* ignore */ }
 
-      // Se logado e configurado, salva no Firestore
-      if (user && db && isFirebaseSetup) {
+    // Se logado, configurado e reachability ok, salva no Firestore
+      if (user && db && isFirebaseSetup && isFirestoreReachable === true) {
           try {
               console.log('[store] persistData: uploading to firestore for user', user.uid, payload);
               await setDoc(doc(db, "users", user.uid), payload);
@@ -53,13 +54,67 @@ export const useAppStore = () => {
               console.error("Erro ao salvar na nuvem:", e);
               setLastPersistError(e?.message || String(e));
           }
+      } else if (user && isFirebaseSetup && isFirestoreReachable !== false) {
+          // Firestore probe still pending (null) or db not yet instantiated: queue payload for later
+          try {
+              console.log('[store] persistData: queueing payload for later upload (probe pending or db not ready)');
+              const key = 'pending_uploads';
+              const raw = localStorage.getItem(key);
+              const pending: Record<string, any[]> = raw ? JSON.parse(raw) : {};
+              const uid = user.uid;
+              pending[uid] = pending[uid] || [];
+              pending[uid].push(payload);
+              localStorage.setItem(key, JSON.stringify(pending));
+          } catch (e) { console.warn('[store] failed to queue pending upload', e); }
+          console.log('[store] persistData: saved locally only (queued for later)', { user: user?.uid, isFirebaseSetup, isFirestoreReachable });
       } else {
-          console.log('[store] persistData: saved locally only (no user/db or firebase not setup)', { user, isFirebaseSetup });
+          console.log('[store] persistData: saved locally only (no user/db or firebase not setup or unreachable)', { user, isFirebaseSetup, isFirestoreReachable });
       }
   }, [user]);
 
   // Auth & Initial Load Effect
   useEffect(() => {
+        // Listen for reachability events from services/firebase (probe)
+        try {
+            const handler = (e: any) => {
+                if (e?.detail && typeof e.detail.reachable !== 'undefined') setFirestoreReachable(!!e.detail.reachable);
+            };
+            window.addEventListener('firestore:reachability', handler as EventListener);
+            // initial read (in case probe already ran)
+            // @ts-ignore
+            try { if (typeof isFirestoreReachable !== 'undefined') setFirestoreReachable(!!isFirestoreReachable); } catch(e) {}
+            // cleanup
+            var __removeReach = () => { window.removeEventListener('firestore:reachability', handler as EventListener); };
+        } catch (e) { var __removeReach = () => {}; }
+
+        // When reachability changes to true, attempt to flush any pending uploads for this user
+        const tryFlushPending = async () => {
+            try {
+                // @ts-ignore
+                if (!isFirestoreReachable) return;
+                if (!user) return;
+                // @ts-ignore
+                if (!db) return;
+                const key = 'pending_uploads';
+                const raw = localStorage.getItem(key);
+                if (!raw) return;
+                const pending: Record<string, any[]> = JSON.parse(raw);
+                const uid = user.uid;
+                const myPending = pending[uid] || [];
+                if (!myPending.length) return;
+                console.log('[store] flushing pending uploads for user', uid, myPending.length);
+                for (const payload of myPending) {
+                    try {
+                        await setDoc(doc(db, 'users', uid), payload);
+                    } catch (e) { console.error('[store] failed flushing payload', e); break; }
+                }
+                // remove flushed entries
+                delete pending[uid];
+                localStorage.setItem(key, JSON.stringify(pending));
+                setLastPersistOkAt(new Date().toISOString());
+            } catch (e) { console.warn('[store] tryFlushPending failed', e); }
+        };
+        tryFlushPending();
     let unsubscribe = () => {};
 
     if (auth && isFirebaseSetup) {
@@ -68,7 +123,7 @@ export const useAppStore = () => {
             setUser(currentUser);
             setAuthError(null);
 
-            if (currentUser && db) {
+            if (currentUser && db && isFirestoreReachable) {
                 // Carregar da Nuvem
                 try {
                     const docRef = doc(db, "users", currentUser.uid);
@@ -148,7 +203,7 @@ export const useAppStore = () => {
         setLoading(false);
     }
 
-    return () => unsubscribe();
+        return () => { try { unsubscribe(); } catch(e){}; try { __removeReach(); } catch(e){} }
   }, []);
 
   // Auth Actions
@@ -256,7 +311,7 @@ export const useAppStore = () => {
       } catch (e) { /* ignore */ }
 
       setPartialSyncStatus(prev => ({ ...prev, [routineId]: 'uploading' }));
-      if (user && db && isFirebaseSetup) {
+    if (user && db && isFirebaseSetup && isFirestoreReachable) {
           try {
               const docRef = doc(db, "users", user.uid);
               await setDoc(docRef, { partialSessions: { [routineId]: withMeta } }, { merge: true });
@@ -279,7 +334,7 @@ export const useAppStore = () => {
           if (raw) local = JSON.parse(raw);
       } catch (e) { local = null; }
 
-      if (user && db && isFirebaseSetup) {
+    if (user && db && isFirebaseSetup && isFirestoreReachable) {
           try {
               const docRef = doc(db, "users", user.uid);
               const snap = await getDoc(docRef);
@@ -305,7 +360,7 @@ export const useAppStore = () => {
       const key = `session_progress_${routineId}`;
       try { localStorage.removeItem(key); } catch (e) {}
 
-      if (user && db && isFirebaseSetup) {
+    if (user && db && isFirebaseSetup && isFirestoreReachable) {
           try {
               const docRef = doc(db, "users", user.uid);
               const snap = await getDoc(docRef);
@@ -396,6 +451,7 @@ export const useAppStore = () => {
 
   return {
       user, login, logout, isConfigured: isFirebaseSetup, authError,
+      firestoreReachable,
       profile, setProfile: handleSetProfile,
       routines, saveRoutines, deleteRoutine, updateRoutine,
       history, addSession, updateSession, deleteSession,
