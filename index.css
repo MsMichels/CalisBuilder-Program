@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0f172a; /* Slate 950 */
+  color: #e2e8f0; /* Slate 200 */
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+}
+
+/* Accessibility / Mobile text sizing */
+/* Ensure text-size-adjust applied to host and html/body (cross-platform) */
+:host, html, body {
+  -webkit-text-size-adjust: 100%; /* Safari, Chrome iOS */
+  text-size-adjust: 100%; /* Chrome, Firefox */
+}
+
+/* Custom scrollbar: Firefox only (use @supports to avoid Safari warnings) */
+@supports (scrollbar-width: thin) {
+  * {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: rgba(71,85,105,0.8) transparent;
+  }
+}
+
+/* WebKit-based scrollbars (Chrome, Safari) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(71,85,105,0.7); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.85); }
+
+/* Utilitários de Animação */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Backdrop filter helper with Safari prefix */
+.backdrop-blur {
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* Add vendor-prefixed backdrop rules for Tailwind-generated sizes to reduce compatibility warnings */
+.backdrop-blur-sm,
+.backdrop-blur,
+.backdrop-blur-md,
+.backdrop-blur-lg,
+.backdrop-blur-xl {
+  -webkit-backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
+  backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
+}
